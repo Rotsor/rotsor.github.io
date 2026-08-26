@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Camera API – Client-Side Processing</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      background: #111;
+      color: #eee;
+    }
+    h1 { font-size: 1.4rem; }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: center;
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    label { font-size: 0.9rem; opacity: 0.7; }
+    video, canvas {
+      border: 2px solid #444;
+      border-radius: 6px;
+      max-width: 320px;
+      width: 100%;
+    }
+    button {
+      padding: 0.5rem 1.4rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      background: #4a9eff;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:hover { background: #2280ee; }
+    select {
+      padding: 0.3rem 0.6rem;
+      font-size: 0.95rem;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Camera API – Client-Side Image Processing</h1>
+
+  <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;justify-content:center">
+    <button id="startBtn">Start Camera</button>
+    <label for="filterSelect">Filter:</label>
+    <select id="filterSelect">
+      <option value="none">None (live)</option>
+      <option value="grayscale">Grayscale</option>
+      <option value="invert">Invert</option>
+      <option value="sepia">Sepia</option>
+      <option value="edge">Edge Detect</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <label>Live feed</label>
+      <video id="video" autoplay playsinline muted width="320" height="240"></video>
+    </div>
+    <div class="panel">
+      <label>Processed output</label>
+      <canvas id="canvas" width="320" height="240"></canvas>
+    </div>
+  </div>
+
+  <p id="status" style="opacity:0.6;font-size:0.85rem">Press <em>Start Camera</em> to begin.</p>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const startBtn = document.getElementById('startBtn');
+    const filterSelect = document.getElementById('filterSelect');
+    const status = document.getElementById('status');
+
+    let animationId = null;
+
+    startBtn.addEventListener('click', async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        video.srcObject = stream;
+        status.textContent = 'Camera active – frames are processed client-side.';
+        startBtn.textContent = 'Camera On';
+        startBtn.disabled = true;
+        processFrames();
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+      }
+    });
+
+    function applyGrayscale(data) {
+      for (let i = 0; i < data.length; i += 4) {
+        const avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        data[i] = data[i + 1] = data[i + 2] = avg;
+      }
+    }
+
+    function applyInvert(data) {
+      for (let i = 0; i < data.length; i += 4) {
+        data[i]     = 255 - data[i];
+        data[i + 1] = 255 - data[i + 1];
+        data[i + 2] = 255 - data[i + 2];
+      }
+    }
+
+    function applySepia(data) {
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        data[i]     = Math.min(255, r * 0.393 + g * 0.769 + b * 0.189);
+        data[i + 1] = Math.min(255, r * 0.349 + g * 0.686 + b * 0.168);
+        data[i + 2] = Math.min(255, r * 0.272 + g * 0.534 + b * 0.131);
+      }
+    }
+
+    // Simple Sobel edge detection (grayscale input)
+    function applyEdge(imageData) {
+      const src = new Uint8ClampedArray(imageData.data);
+      const w = imageData.width, h = imageData.height;
+      const data = imageData.data;
+
+      // Convert to grayscale first
+      for (let i = 0; i < src.length; i += 4) {
+        const g = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+        src[i] = src[i + 1] = src[i + 2] = g;
+      }
+
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = (y * w + x) * 4;
+          const tl = src[((y-1)*w+(x-1))*4], tm = src[((y-1)*w+x)*4], tr = src[((y-1)*w+(x+1))*4];
+          const ml = src[(y*w+(x-1))*4],                                mr = src[(y*w+(x+1))*4];
+          const bl = src[((y+1)*w+(x-1))*4], bm = src[((y+1)*w+x)*4], br = src[((y+1)*w+(x+1))*4];
+
+          const gx = -tl - 2*ml - bl + tr + 2*mr + br;
+          const gy = -tl - 2*tm - tr + bl + 2*bm + br;
+          const mag = Math.min(255, Math.sqrt(gx*gx + gy*gy));
+          data[idx] = data[idx+1] = data[idx+2] = mag;
+          data[idx+3] = 255;
+        }
+      }
+    }
+
+    function processFrames() {
+      if (video.readyState < 2) {
+        animationId = requestAnimationFrame(processFrames);
+        return;
+      }
+
+      canvas.width = video.videoWidth || 320;
+      canvas.height = video.videoHeight || 240;
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const filter = filterSelect.value;
+      if (filter !== 'none') {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        if (filter === 'grayscale') applyGrayscale(imageData.data);
+        else if (filter === 'invert') applyInvert(imageData.data);
+        else if (filter === 'sepia') applySepia(imageData.data);
+        else if (filter === 'edge') applyEdge(imageData);
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      animationId = requestAnimationFrame(processFrames);
+    }
+  </script>
+</body>
+</html>
